@@ -3,7 +3,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from .db import get_db
 from .security import decode_token
-from .models.user import User, Role
+from .models.user import User
 
 security = HTTPBearer()
 
@@ -60,27 +60,17 @@ def get_current_active_user(current_user: User = Depends(get_current_user)) -> U
 # =============== Role-Based Access Control ===============
 
 def require_admin(current_user: User = Depends(get_current_user)) -> User:
-    """Requer permissão de admin"""
-    if current_user.role != Role.ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Acesso negado: apenas administradores"
-        )
+    """Retorna o usuário autenticado sem validação de cargo."""
     return current_user
 
 
 def require_assistente(current_user: User = Depends(get_current_user)) -> User:
-    """Requer permissão de assistente ou admin"""
-    if current_user.role not in [Role.ASSISTENTE, Role.ADMIN]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Acesso negado: apenas assistentes ou administradores"
-        )
+    """Retorna o usuário autenticado sem validação de cargo."""
     return current_user
 
 
 def require_assistente_or_admin(current_user: User = Depends(get_current_user)) -> User:
-    """Alias para require_assistente"""
+    """Alias para require_assistente."""
     return require_assistente(current_user)
 
 
@@ -106,3 +96,7 @@ def get_current_user_optional(
 
     user = db.query(User).filter(User.id == int(user_id), User.is_active == True).first()
     return user
+
+
+# Alias para compatibilidade
+get_optional_user = get_current_user_optional

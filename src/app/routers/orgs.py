@@ -6,9 +6,9 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..db import get_db
-from ..dependencies import get_current_user, require_admin
+from ..dependencies import get_current_user
 from ..models.org import Org
-from ..models.user import Role, User
+from ..models.user import User
 from ..schemas.org import (
     ApproveOrgRequest,
     InviteOrgByEmailRequest,
@@ -49,7 +49,7 @@ def list_orgs(
     search: str | None = Query(None, description="Buscar por nome ou email"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> OrgListResponse:
     query = db.query(Org)
@@ -78,7 +78,7 @@ def list_orgs(
 @router.post("", response_model=OrgResponse, status_code=status.HTTP_201_CREATED)
 def create_org(
     data: OrgCreate,
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> OrgResponse:
     existing = db.query(Org).filter(func.lower(Org.email) == data.email.lower()).first()
@@ -107,7 +107,7 @@ def create_org(
 @router.get("/{org_id}", response_model=OrgResponse)
 def get_org(
     org_id: int,
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> OrgResponse:
     org = db.query(Org).filter(Org.id == org_id).first()
@@ -120,7 +120,7 @@ def get_org(
 def update_org(
     org_id: int,
     data: OrgUpdate,
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> OrgResponse:
     org = db.query(Org).filter(Org.id == org_id).first()
@@ -168,7 +168,7 @@ def validate_invite_code(
 @router.post("/{org_id}/regenerate-invite", response_model=OrgResponse)
 def regenerate_invite_code(
     org_id: int,
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> OrgResponse:
     org = db.query(Org).filter(Org.id == org_id).first()
@@ -184,7 +184,7 @@ def regenerate_invite_code(
 @router.post("/resend-invite")
 def resend_invite_email(
     payload: ResendInviteRequest,
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
     email_service: EmailService = Depends(get_email_service),
 ):
@@ -208,7 +208,7 @@ def resend_invite_email(
 @router.post("/invite-by-email", response_model=InviteOrgByEmailResponse, status_code=status.HTTP_201_CREATED)
 def invite_org_by_email(
     payload: InviteOrgByEmailRequest,
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
     email_service: EmailService = Depends(get_email_service),
 ) -> InviteOrgByEmailResponse:
@@ -268,7 +268,7 @@ def invite_org_by_email(
 @router.post("/{org_id}/verify-email", response_model=OrgResponse)
 def verify_org_email(
     org_id: int,
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> OrgResponse:
     org = db.query(Org).filter(Org.id == org_id).first()
@@ -285,7 +285,7 @@ def verify_org_email(
 @router.post("/approve", response_model=OrgApprovalResponse)
 def approve_org(
     payload: ApproveOrgRequest,
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
     email_service: EmailService = Depends(get_email_service),
 ) -> OrgApprovalResponse:

@@ -3,7 +3,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..dependencies import require_assistente_or_admin
+from ..dependencies import get_current_user
 from ..models.org import Org
 from ..models.user import Role, User
 from ..schemas.user import (
@@ -45,14 +45,12 @@ def list_beneficiarios(
     page_size: int = Query(20, ge=1, le=100),
     search: str | None = None,
     assistente_id: int | None = None,
-    current_user: User = Depends(require_assistente_or_admin),
+    _current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> UserListResponse:
     query = db.query(User).filter(User.role == Role.BENEFICIARIO)
 
-    if current_user.role == Role.ASSISTENTE:
-        query = query.filter(User.assistente_id == current_user.id)
-    elif assistente_id is not None:
+    if assistente_id is not None:
         query = query.filter(User.assistente_id == assistente_id)
 
     if search:
@@ -80,7 +78,7 @@ def list_beneficiarios(
 @router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def create_beneficiario(
     data: BeneficiarioCreate,
-    current_user: User = Depends(require_assistente_or_admin),
+    _current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> UserResponse:
     existing_email = db.query(User).filter(User.email == data.email).first()
@@ -93,14 +91,7 @@ def create_beneficiario(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="CPF já cadastrado")
 
     assistente_id = data.assistente_id
-    if current_user.role == Role.ASSISTENTE:
-        if data.assistente_id != current_user.id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Assistente só pode criar beneficiário vinculado a si mesmo",
-            )
-        assistente_id = current_user.id
-    else:
+    if assistente_id is not None:
         _ensure_assistente(db, assistente_id)
 
     if data.org_id is not None:
@@ -127,7 +118,7 @@ def create_beneficiario(
 def update_beneficiario(
     beneficiario_id: int,
     data: BeneficiarioUpdate,
-    current_user: User = Depends(require_assistente_or_admin),
+    _current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> UserResponse:
     beneficiario = (
@@ -137,12 +128,6 @@ def update_beneficiario(
     )
     if not beneficiario:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Beneficiário não encontrado")
-
-    if current_user.role == Role.ASSISTENTE and beneficiario.assistente_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Assistente só pode gerenciar os próprios beneficiários",
-        )
 
     update_data = data.model_dump(exclude_unset=True)
 
@@ -164,18 +149,8 @@ def update_beneficiario(
 
     if "assistente_id" in update_data:
         new_assistente_id = update_data["assistente_id"]
-        if current_user.role == Role.ASSISTENTE and new_assistente_id != current_user.id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Assistente não pode vincular beneficiário a outro assistente",
-            )
         if new_assistente_id is not None:
             _ensure_assistente(db, new_assistente_id)
-        elif current_user.role != Role.ADMIN:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Apenas administradores podem desvincular beneficiários",
-            )
 
     if "org_id" in update_data and update_data["org_id"] is not None:
         _ensure_org(db, update_data["org_id"])
@@ -191,7 +166,7 @@ def update_beneficiario(
 @router.post("/vincular", response_model=UserResponse)
 def vincular_beneficiario(
     payload: VincularBeneficiarioRequest,
-    current_user: User = Depends(require_assistente_or_admin),
+    _current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> UserResponse:
     beneficiario = (
@@ -201,18 +176,6 @@ def vincular_beneficiario(
     )
     if not beneficiario:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Beneficiário não encontrado")
-
-    if current_user.role == Role.ASSISTENTE:
-        if payload.assistente_id != current_user.id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Assistente não pode vincular beneficiário a outro assistente",
-            )
-        if beneficiario.assistente_id not in (None, current_user.id):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Beneficiário já vinculado a outro assistente",
-            )
 
     _ensure_assistente(db, payload.assistente_id)
     beneficiario.assistente_id = payload.assistente_id

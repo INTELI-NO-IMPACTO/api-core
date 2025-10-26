@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import String, Text, DateTime, ForeignKey, func, Boolean
+from sqlalchemy import String, Text, DateTime, ForeignKey, func, Boolean, Integer, Float
 from ..db import Base
 from datetime import datetime
 
@@ -17,6 +17,11 @@ class Chat(Base):
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     is_active: Mapped[bool] = mapped_column(default=True)
+
+    # Sistema de avaliação (rating de 0 a 5)
+    rating: Mapped[int | None] = mapped_column(Integer, nullable=True)  # Nota de 0 a 5
+    rating_comment: Mapped[str | None] = mapped_column(Text, nullable=True)  # Comentário opcional
+    rated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

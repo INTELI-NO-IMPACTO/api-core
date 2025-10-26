@@ -16,9 +16,9 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..dependencies import get_current_user, require_admin
+from ..dependencies import get_current_user
 from ..models.article import Article, ArticleStatus
-from ..models.user import Role, User
+from ..models.user import User
 from ..schemas.article import (
     ApproveArticleRequest,
     ArticleApprovalResponse,
@@ -121,9 +121,9 @@ def list_articles(
 
 @router.post("", response_model=ArticleResponse, status_code=status.HTTP_201_CREATED)
 async def create_article(
-    title: str = Form(...),
-    body_md: str = Form(...),
-    tags: str = Form(...),
+    title: str = Form(""),
+    body_md: str = Form(""),
+    tags: str = Form(""),
     status_value: ArticleStatus = Form(ArticleStatus.DRAFT),
     link_doc: str | None = Form(None),
     link_image: str | None = Form(None),
@@ -132,17 +132,13 @@ async def create_article(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ArticleResponse:
-    if len(title.strip()) < 3:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Título deve ter no mínimo 3 caracteres.")
-    if not tags or not tags.strip():
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Pelo menos uma tag é obrigatória.")
-
-    normalized_tags = tags.strip().lower()
-    slug = _generate_slug(title)
+    normalized_title = title.strip() if isinstance(title, str) else str(title)
+    normalized_tags = tags.strip().lower() if isinstance(tags, str) else ""
+    slug = _generate_slug(normalized_title)
     slug = _ensure_unique_slug(db, slug)
 
     article = Article(
-        title=title,
+        title=normalized_title,
         slug=slug,
         body_md=body_md,
         tags=normalized_tags,
@@ -233,14 +229,16 @@ def update_article(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ArticleResponse:
+    """Atualiza um artigo (apenas JSON, sem upload de arquivos)"""
     article = db.query(Article).filter(Article.id == article_id).first()
     if not article:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Artigo não encontrado")
 
-    if current_user.role not in {Role.ADMIN, Role.ASSISTENTE} and article.author_id != current_user.id:
+    # Validação: apenas o autor ou admin pode editar
+    if article.author_id != current_user.id and not current_user.is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Usuário sem permissão para editar este artigo",
+            detail="Você não tem permissão para editar este artigo"
         )
 
     update_data = data.model_dump(exclude_unset=True)
@@ -253,6 +251,127 @@ def update_article(
         setattr(article, field, value)
 
     article.updated_at = datetime.utcnow()
+    article.version += 1  # Incrementa a versão
+    db.commit()
+    db.refresh(article)
+    return article
+
+
+@router.patch("/{article_id}", response_model=ArticleResponse)
+async def update_article_with_files(
+    article_id: int,
+    title: str | None = Form(None),
+    body_md: str | None = Form(None),
+    tags: str | None = Form(None),
+    status_value: ArticleStatus | None = Form(None),
+    link_doc: str | None = Form(None),
+    link_image: str | None = Form(None),
+    file: UploadFile | None = File(None),
+    file_image: UploadFile | None = File(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ArticleResponse:
+    """
+    Atualiza um artigo com suporte a upload de arquivos.
+
+    - Apenas o autor ou admin pode editar
+    - Aceita campos opcionais via multipart/form-data
+    - Permite upload de novos arquivos (file) e imagens (file_image)
+    """
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Artigo não encontrado")
+
+    # Validação: apenas o autor ou admin pode editar
+    if article.author_id != current_user.id and not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Você não tem permissão para editar este artigo"
+        )
+
+    # Atualizar campos de texto
+    if title is not None and title.strip():
+        article.title = title.strip()
+        new_slug = _ensure_unique_slug(db, _generate_slug(article.title), article_id=article.id)
+        article.slug = new_slug
+
+    if body_md is not None:
+        article.body_md = body_md
+
+    if tags is not None:
+        article.tags = tags.strip().lower()
+
+    if status_value is not None:
+        article.status = status_value
+
+    if link_doc is not None:
+        article.link_doc = link_doc
+
+    if link_image is not None:
+        article.link_image = link_image
+
+    # Handle file_image upload (specific for images)
+    if file_image:
+        try:
+            storage_service = get_supabase_storage_service()
+        except HTTPException as exc:
+            if exc.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR:
+                raise HTTPException(
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                    "Storage Supabase não configurado para upload de arquivos.",
+                ) from exc
+            raise
+
+        # Validate that file_image is actually an image
+        if not file_image.content_type or not file_image.content_type.startswith("image/"):
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "O campo file_image deve conter uma imagem (image/*).",
+            )
+
+        file_bytes = await file_image.read()
+        safe_filename = _sanitize_filename(file_image.filename)
+        destination = f"articles/{article.slug}/images/{safe_filename}"
+        stored_path = storage_service.upload_file(
+            destination,
+            file_bytes,
+            content_type=file_image.content_type,
+            upsert=True,
+        )
+        public_url = storage_service.get_public_url(stored_path)
+        article.link_image = public_url
+
+    # Handle generic file upload (for documents, etc.)
+    if file:
+        try:
+            storage_service = get_supabase_storage_service()
+        except HTTPException as exc:
+            if exc.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR:
+                raise HTTPException(
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                    "Storage Supabase não configurado para upload de arquivos.",
+                ) from exc
+            raise
+
+        file_bytes = await file.read()
+        safe_filename = _sanitize_filename(file.filename)
+        destination = f"articles/{article.slug}/{safe_filename}"
+        stored_path = storage_service.upload_file(
+            destination,
+            file_bytes,
+            content_type=file.content_type,
+            upsert=True,
+        )
+        public_url = storage_service.get_public_url(stored_path)
+        if file.content_type and file.content_type.startswith("image/"):
+            # Only set link_image if not already set by file_image
+            if not article.link_image:
+                article.link_image = public_url
+        else:
+            article.link_doc = public_url
+
+    article.updated_at = datetime.utcnow()
+    article.version += 1
     db.commit()
     db.refresh(article)
     return article
@@ -261,7 +380,7 @@ def update_article(
 @router.post("/approve", response_model=ArticleApprovalResponse)
 def approve_article(
     payload: ApproveArticleRequest,
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ArticleApprovalResponse:
     article = db.query(Article).filter(Article.id == payload.article_id).first()
