@@ -39,7 +39,7 @@ class SupabaseStorageService:
         content_type: str | None = None,
         upsert: bool = False,
     ) -> str:
-        """Envia um arquivo para o bucket e retorna o caminho armazenado."""
+        """Envia um arquivo para o bucket e retorna o caminho armazenado (sem bucket prefix)."""
         path = destination_path.lstrip("/")
         payload = _ensure_bytes(file_data)
         headers = {
@@ -62,6 +62,10 @@ class SupabaseStorageService:
         if isinstance(data, dict):
             stored_path = data.get("path") or data.get("Key") or data.get("key")
             if stored_path:
+                # Remove bucket prefix if present to avoid duplication in public URL
+                bucket_prefix = f"{self._bucket}/"
+                if stored_path.startswith(bucket_prefix):
+                    return stored_path[len(bucket_prefix):]
                 return stored_path
         return path
 
