@@ -6,7 +6,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..dependencies import require_admin
+from ..dependencies import get_current_user
 from ..models.donation import Donation, DonationLedger, DonationStatus
 from ..models.org import Org
 from ..schemas.donation import (
@@ -138,7 +138,7 @@ def get_donation(donation_id: int, db: Session = Depends(get_db)) -> DonationWit
 def append_ledger_entry(
     donation_id: int,
     entry: DonationLedgerEntry,
-    current_user=Depends(require_admin),
+    _current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> DonationLedgerResponse:
     donation = db.query(Donation).filter(Donation.id == donation_id).first()

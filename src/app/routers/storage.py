@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, File, Form, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ..utils.supabase import SupabaseStorageService, get_supabase_storage_service
 
@@ -15,6 +15,21 @@ class GenerateSignedUrlPayload(BaseModel):
         le=60 * 60 * 24 * 7,
         description="Tempo de expiração da URL assinada (segundos).",
     )
+
+
+class DeleteFilesPayload(BaseModel):
+    prefixes: list[str] = Field(
+        ...,
+        min_length=1,
+        description="Lista de caminhos (incluindo pastas) dentro do bucket a serem removidos.",
+    )
+
+    @field_validator("prefixes")
+    @classmethod
+    def validate_prefixes(cls, prefixes: list[str]) -> list[str]:
+        if any(not prefix or not prefix.strip() for prefix in prefixes):
+            raise ValueError("Cada caminho deve ser uma string não vazia.")
+        return prefixes
 
 
 @router.post(
@@ -58,11 +73,11 @@ async def generate_signed_url(
 @router.delete(
     "",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Remove um arquivo do bucket configurado no Supabase.",
+    summary="Remove um ou mais arquivos do bucket configurado no Supabase.",
 )
 async def delete_file(
-    destination_path: str,
+    payload: DeleteFilesPayload,
     storage: SupabaseStorageService = Depends(get_supabase_storage_service),
 ):
-    await run_in_threadpool(storage.delete_file, destination_path)
+    await run_in_threadpool(storage.delete_files, payload.prefixes)
     return None

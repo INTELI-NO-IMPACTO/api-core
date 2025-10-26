@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, Sequence
 
 import httpx
 from fastapi import HTTPException, status
@@ -70,7 +70,17 @@ class SupabaseStorageService:
         return path
 
     def delete_file(self, destination_path: str) -> None:
-        path = destination_path.lstrip("/")
+        self.delete_files([destination_path])
+
+    def delete_files(self, prefixes: Sequence[str]) -> None:
+        normalized_prefixes = [prefix.lstrip("/") for prefix in prefixes if prefix]
+
+        if not normalized_prefixes:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Ao menos um caminho deve ser informado para exclusão no Supabase.",
+            )
+
         url = f"{self._storage_base_url}/object/{self._bucket}"
         response = _perform_request(
             method="DELETE",
@@ -79,7 +89,7 @@ class SupabaseStorageService:
                 **self._auth_headers(),
                 "Content-Type": "application/json",
             },
-            json={"paths": [path]},
+            json={"prefixes": normalized_prefixes},
             timeout=self._timeout,
             error_message="Falha ao remover arquivo do Supabase.",
         )

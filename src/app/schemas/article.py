@@ -33,12 +33,30 @@ class ArticleCreate(ArticleBase):
 
 
 class ArticleUpdate(BaseModel):
+    """Schema para atualizar artigo (apenas campos que deseja modificar)"""
     title: str | None = None
     body_md: str | None = None
     tags: str | None = None
     link_doc: str | None = None
     link_image: str | None = None
     status: ArticleStatus | None = None
+
+    @field_validator('title')
+    @classmethod
+    def validate_title(cls, v: str | None) -> str | None:
+        if v is not None and len(v.strip()) < 3:
+            raise ValueError('Título deve ter no mínimo 3 caracteres')
+        return v
+
+    @field_validator('tags')
+    @classmethod
+    def validate_tags(cls, v: str | None) -> str | None:
+        if v is not None:
+            cleaned = v.strip()
+            if len(cleaned) == 0:
+                raise ValueError('Tags não podem estar vazias')
+            return cleaned.lower()
+        return v
 
 
 class ArticleResponse(ArticleBase):

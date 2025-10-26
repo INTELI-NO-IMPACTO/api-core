@@ -23,6 +23,9 @@ class ChatResponse(BaseModel):
     title: str | None
     summary: str | None
     is_active: bool
+    rating: int | None
+    rating_comment: str | None
+    rated_at: datetime | None
     created_at: datetime
     updated_at: datetime
 
@@ -95,3 +98,43 @@ class ChatSummaryResponse(BaseModel):
     message_count: int
     created_at: datetime
     updated_at: datetime
+
+
+# =============== Rating System ===============
+
+class ChatRatingCreate(BaseModel):
+    """Schema para avaliar uma conversa"""
+    rating: int
+    comment: str | None = None
+
+    @field_validator('rating')
+    @classmethod
+    def validate_rating(cls, v: int) -> int:
+        if v < 0 or v > 5:
+            raise ValueError('Rating deve estar entre 0 e 5')
+        return v
+
+    @field_validator('comment')
+    @classmethod
+    def validate_comment(cls, v: str | None) -> str | None:
+        if v is not None and len(v) > 1000:
+            raise ValueError('Comentário muito longo (máx 1000 caracteres)')
+        return v
+
+
+class ChatRatingResponse(BaseModel):
+    """Response após avaliar conversa"""
+    chat_id: int
+    rating: int
+    rating_comment: str | None
+    rated_at: datetime
+    message: str
+
+
+class ChatRatingStatsResponse(BaseModel):
+    """Estatísticas gerais de avaliações"""
+    total_ratings: int
+    average_rating: float
+    rating_distribution: dict[int, int]  # {0: count, 1: count, ...}
+    total_chats: int
+    percentage_rated: float
