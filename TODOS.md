@@ -1,0 +1,3 @@
+- endpoints de login
+- endpoi
+- Integrar o BUKET do supabase com a aplicação para conseguir subir arquivos
