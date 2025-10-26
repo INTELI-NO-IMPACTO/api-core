@@ -1,4 +1,6 @@
+import re
 from datetime import datetime
+from pathlib import Path
 
 from fastapi import (
     APIRouter,
@@ -33,6 +35,33 @@ router = APIRouter(prefix="/articles", tags=["articles"])
 def _generate_slug(title: str) -> str:
     slug = "-".join(part for part in title.lower().strip().split() if part)
     return "".join(ch for ch in slug if ch.isalnum() or ch == "-")
+
+
+def _sanitize_filename(filename: str) -> str:
+    """Sanitize filename to only allow alphanumeric, dots, hyphens, and underscores."""
+    if not filename:
+        return "file"
+
+    # Get the file extension
+    path = Path(filename)
+    name = path.stem
+    ext = path.suffix
+
+    # Remove or replace invalid characters from the name
+    # Allow only: letters, numbers, hyphens, underscores
+    name = re.sub(r'[^\w\-]', '_', name)
+
+    # Remove consecutive underscores and trim
+    name = re.sub(r'_+', '_', name).strip('_')
+
+    # If name is empty after sanitization, use a default
+    if not name:
+        name = "file"
+
+    # Sanitize extension (remove any non-alphanumeric except dot)
+    ext = re.sub(r'[^\w.]', '', ext)
+
+    return f"{name}{ext}"
 
 
 def _ensure_unique_slug(db: Session, slug: str, article_id: int | None = None) -> str:
@@ -143,7 +172,8 @@ async def create_article(
             )
 
         file_bytes = await file_image.read()
-        destination = f"articles/{slug}/images/{file_image.filename}"
+        safe_filename = _sanitize_filename(file_image.filename)
+        destination = f"articles/{slug}/images/{safe_filename}"
         stored_path = storage_service.upload_file(
             destination,
             file_bytes,
@@ -166,7 +196,8 @@ async def create_article(
             raise
 
         file_bytes = await file.read()
-        destination = f"articles/{slug}/{file.filename}"
+        safe_filename = _sanitize_filename(file.filename)
+        destination = f"articles/{slug}/{safe_filename}"
         stored_path = storage_service.upload_file(
             destination,
             file_bytes,
