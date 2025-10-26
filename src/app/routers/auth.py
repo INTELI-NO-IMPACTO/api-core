@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 
@@ -26,6 +26,7 @@ from ..schemas.auth import (
 )
 from ..dependencies import get_current_user
 from ..config import settings
+from ..utils.supabase import get_supabase_storage_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -33,10 +34,40 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 # =============== Register ===============
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-def register(data: RegisterRequest, db: Session = Depends(get_db)):
-    """Registra novo usuário (beneficiário por padrão)"""
+async def register(
+    email: str = Form(...),
+    password: str = Form(...),
+    name: str = Form(...),
+    social_name: str | None = Form(None),
+    pronoun: str | None = Form(None),
+    cpf: str | None = Form(None),
+    profile_image: UploadFile | None = File(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Registra novo usuário (beneficiário por padrão).
+
+    Aceita dados do usuário via form-data, incluindo upload opcional de foto de perfil.
+    """
+    # Validar senha
+    if len(password) < 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Senha deve ter no mínimo 6 caracteres"
+        )
+
+    # Validar e normalizar CPF se fornecido
+    normalized_cpf = None
+    if cpf:
+        normalized_cpf = ''.join(filter(str.isdigit, cpf))
+        if len(normalized_cpf) != 11:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="CPF deve ter 11 dígitos"
+            )
+
     # Verificar se email já existe
-    existing_user = db.query(User).filter(User.email == data.email).first()
+    existing_user = db.query(User).filter(User.email == email).first()
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -44,8 +75,8 @@ def register(data: RegisterRequest, db: Session = Depends(get_db)):
         )
 
     # Verificar CPF se fornecido
-    if data.cpf:
-        existing_cpf = db.query(User).filter(User.cpf == data.cpf).first()
+    if normalized_cpf:
+        existing_cpf = db.query(User).filter(User.cpf == normalized_cpf).first()
         if existing_cpf:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -54,17 +85,54 @@ def register(data: RegisterRequest, db: Session = Depends(get_db)):
 
     # Criar usuário
     user = User(
-        email=data.email,
-        name=data.name,
-        social_name=data.social_name,
-        cpf=data.cpf,
-        password_hash=hash_password(data.password),
+        email=email,
+        name=name,
+        social_name=social_name,
+        pronoun=pronoun,
+        cpf=normalized_cpf,
+        password_hash=hash_password(password),
         role=Role.BENEFICIARIO,
         is_active=True
     )
     db.add(user)
     db.commit()
     db.refresh(user)
+
+    # Upload de imagem de perfil se fornecida
+    if profile_image:
+        # Validar que é uma imagem
+        if profile_image.content_type and profile_image.content_type.startswith("image/"):
+            try:
+                storage_service = get_supabase_storage_service()
+
+                # Ler arquivo e fazer upload
+                file_bytes = await profile_image.read()
+
+                # Sanitizar nome do arquivo
+                from pathlib import Path
+                path = Path(profile_image.filename or "profile.jpg")
+                ext = path.suffix or ".jpg"
+                safe_filename = f"profile_{user.id}{ext}"
+
+                destination = f"users/{user.id}/profile/{safe_filename}"
+
+                stored_path = storage_service.upload_file(
+                    destination,
+                    file_bytes,
+                    content_type=profile_image.content_type,
+                    upsert=True,
+                )
+
+                # Gerar URL pública
+                public_url = storage_service.get_public_url(stored_path)
+
+                # Atualizar usuário com URL da imagem
+                user.profile_image_url = public_url
+                db.commit()
+                db.refresh(user)
+            except HTTPException:
+                # Se falhar o upload, continua sem a imagem
+                pass
 
     # Criar tokens
     access_token = create_access_token(user.id)
@@ -180,6 +248,116 @@ def get_me(current_user: User = Depends(get_current_user)):
         email=current_user.email,
         name=current_user.name,
         social_name=current_user.social_name,
+        pronoun=current_user.pronoun,
+        profile_image_url=current_user.profile_image_url,
+        role=current_user.role.value,
+        is_active=current_user.is_active,
+        org_id=current_user.org_id,
+        assistente_id=current_user.assistente_id
+    )
+
+
+@router.put("/me", response_model=CurrentUserResponse)
+async def update_me(
+    name: str | None = Form(None),
+    social_name: str | None = Form(None),
+    pronoun: str | None = Form(None),
+    cpf: str | None = Form(None),
+    profile_image: UploadFile | None = File(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Atualiza dados do usuário logado.
+
+    Permite atualizar: name, social_name, pronoun, cpf e profile_image.
+    Todos os campos são opcionais - apenas os fornecidos serão atualizados.
+    """
+    # Atualizar campos de texto se fornecidos
+    if name is not None:
+        current_user.name = name
+
+    if social_name is not None:
+        current_user.social_name = social_name
+
+    if pronoun is not None:
+        current_user.pronoun = pronoun
+
+    if cpf is not None:
+        # Validar e normalizar CPF
+        normalized_cpf = ''.join(filter(str.isdigit, cpf))
+        if len(normalized_cpf) != 11:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="CPF deve ter 11 dígitos"
+            )
+
+        # Verificar se CPF já está em uso por outro usuário
+        existing_cpf = db.query(User).filter(
+            User.cpf == normalized_cpf,
+            User.id != current_user.id
+        ).first()
+
+        if existing_cpf:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="CPF já cadastrado para outro usuário"
+            )
+
+        current_user.cpf = normalized_cpf
+
+    # Upload de imagem de perfil se fornecida
+    if profile_image:
+        # Validar que é uma imagem
+        if not profile_image.content_type or not profile_image.content_type.startswith("image/"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="O arquivo deve ser uma imagem (image/*)"
+            )
+
+        try:
+            storage_service = get_supabase_storage_service()
+
+            # Ler arquivo e fazer upload
+            file_bytes = await profile_image.read()
+
+            # Sanitizar nome do arquivo
+            from pathlib import Path
+            path = Path(profile_image.filename or "profile.jpg")
+            ext = path.suffix or ".jpg"
+            safe_filename = f"profile_{current_user.id}{ext}"
+
+            destination = f"users/{current_user.id}/profile/{safe_filename}"
+
+            stored_path = storage_service.upload_file(
+                destination,
+                file_bytes,
+                content_type=profile_image.content_type,
+                upsert=True,
+            )
+
+            # Gerar URL pública
+            public_url = storage_service.get_public_url(stored_path)
+            current_user.profile_image_url = public_url
+        except HTTPException as exc:
+            if exc.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Storage não configurado para upload de arquivos."
+                ) from exc
+            raise
+
+    # Salvar alterações
+    db.commit()
+    db.refresh(current_user)
+
+    return CurrentUserResponse(
+        id=current_user.id,
+        email=current_user.email,
+        name=current_user.name,
+        social_name=current_user.social_name,
+        pronoun=current_user.pronoun,
+        profile_image_url=current_user.profile_image_url,
         role=current_user.role.value,
         is_active=current_user.is_active,
         org_id=current_user.org_id,
@@ -232,3 +410,66 @@ def logout(
         db.commit()
 
     return None
+
+
+# =============== Profile Image Upload ===============
+
+@router.post("/upload-profile-image", response_model=CurrentUserResponse)
+async def upload_profile_image(
+    profile_image: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Upload de foto de perfil do usuário.
+
+    Aceita apenas imagens (image/*) e salva no Supabase Storage.
+    """
+    # Validar que é uma imagem
+    if not profile_image.content_type or not profile_image.content_type.startswith("image/"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="O arquivo deve ser uma imagem (image/*)"
+        )
+
+    # Obter serviço de storage
+    try:
+        storage_service = get_supabase_storage_service()
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Storage não configurado para upload de arquivos."
+            ) from exc
+        raise
+
+    # Ler arquivo e fazer upload
+    file_bytes = await profile_image.read()
+
+    # Sanitizar nome do arquivo
+    import re
+    from pathlib import Path
+
+    path = Path(profile_image.filename or "profile.jpg")
+    ext = path.suffix or ".jpg"
+    # Usar ID do usuário para garantir unicidade
+    safe_filename = f"profile_{current_user.id}{ext}"
+
+    destination = f"users/{current_user.id}/profile/{safe_filename}"
+
+    stored_path = storage_service.upload_file(
+        destination,
+        file_bytes,
+        content_type=profile_image.content_type,
+        upsert=True,  # Permite sobrescrever imagem anterior
+    )
+
+    # Gerar URL pública
+    public_url = storage_service.get_public_url(stored_path)
+
+    # Atualizar usuário no banco
+    current_user.profile_image_url = public_url
+    db.commit()
+    db.refresh(current_user)
+
+    return current_user

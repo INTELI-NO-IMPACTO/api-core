@@ -15,6 +15,8 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     name: Mapped[str | None]
     social_name: Mapped[str | None]
+    pronoun: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    profile_image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     cpf: Mapped[str | None] = mapped_column(String(11), unique=True, nullable=True, index=True)
     password_hash: Mapped[str]
     role: Mapped[Role] = mapped_column(Enum(Role, values_callable=lambda x: [e.value for e in x]), default=Role.BENEFICIARIO)
