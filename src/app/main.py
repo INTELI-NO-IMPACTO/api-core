@@ -1,9 +1,13 @@
 ﻿from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
-from .routers import auth  # , users, orgs, articles, metrics
+from .routers import auth, storage  # , users, orgs, articles, metrics
 
-app = FastAPI(title="Meu Nome Gov - API Core")
+app = FastAPI(
+    title="Meu Nome Gov - API Core",
+    description="API para sistema de gestão de beneficiários e ONGs",
+    version="1.0.0"
+)
 
 origins = [o.strip() for o in settings.CORS_ORIGINS.split(",")]
 app.add_middleware(
@@ -12,9 +16,11 @@ app.add_middleware(
 )
 
 @app.get("/health")
-def health(): return {"ok": True}
+def health():
+    return {"ok": True, "message": "API is running"}
 
 app.include_router(auth.router)
+app.include_router(storage.router)
 # app.include_router(users.router)
 # app.include_router(orgs.router)
 # app.include_router(articles.router)

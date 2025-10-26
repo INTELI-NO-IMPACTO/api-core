@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     SMTP_PASS: str | None = None
     SMTP_FROM: str | None = None
     CORS_ORIGINS: str = "*"
+    SUPABASE_URL: str | None = None
+    SUPABASE_SERVICE_ROLE_KEY: str | None = None
+    SUPABASE_BUCKET: str | None = None
+    SUPABASE_PUBLIC_BUCKET_URL: str | None = None
 
     class Config:
         env_file = ".env"
