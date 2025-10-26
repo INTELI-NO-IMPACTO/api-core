@@ -89,6 +89,26 @@ class BeneficiarioCreate(UserBase):
         return v
 
 
+class BeneficiarioUpdate(BaseModel):
+    email: EmailStr | None = None
+    name: str | None = None
+    social_name: str | None = None
+    cpf: str | None = None
+    is_active: bool | None = None
+    assistente_id: int | None = None
+    org_id: int | None = None
+
+    @field_validator('cpf')
+    @classmethod
+    def validate_cpf(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        cpf = ''.join(filter(str.isdigit, v))
+        if len(cpf) != 11:
+            raise ValueError('CPF deve ter 11 dígitos')
+        return cpf
+
+
 class AssistenteCreate(UserBase):
     """Schema para criar assistente - org_id é obrigatório"""
     password: str

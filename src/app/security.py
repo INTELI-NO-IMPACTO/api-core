@@ -1,27 +1,31 @@
-from datetime import datetime, timedelta
-from jose import jwt, JWTError
-from passlib.context import CryptContext
-from .config import settings
 import secrets
+from datetime import datetime, timedelta
 
-# Use bcrypt with explicit truncate_error=False to avoid compatibility issues
-pwd_ctx = CryptContext(
-    schemes=["bcrypt"],
-    deprecated="auto",
-    bcrypt__default_rounds=12,
-    bcrypt__ident="2b",
-)
+import bcrypt
+from jose import JWTError, jwt
+
+from .config import settings
 
 # =============== Password Hashing ===============
 
 def hash_password(password: str) -> str:
     """Hash de senha usando bcrypt"""
-    return pwd_ctx.hash(password)
+    password_bytes = password.encode("utf-8")
+    if len(password_bytes) > 72:
+        raise ValueError("Senha deve ter no máximo 72 bytes")
+    salt = bcrypt.gensalt(rounds=12)
+    return bcrypt.hashpw(password_bytes, salt).decode("utf-8")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verifica senha contra hash"""
-    return pwd_ctx.verify(plain_password, hashed_password)
+    try:
+        return bcrypt.checkpw(
+            plain_password.encode("utf-8"),
+            hashed_password.encode("utf-8"),
+        )
+    except ValueError:
+        return False
 
 
 # =============== JWT Tokens ===============

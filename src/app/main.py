@@ -1,7 +1,7 @@
 ﻿from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
-from .routers import auth, storage  # , users, orgs, articles, metrics
+from .routers import auth, storage, beneficiarios, orgs, articles, donations, metrics  # , users
 
 app = FastAPI(
     title="Meu Nome Gov - API Core",
@@ -21,8 +21,9 @@ def health():
 
 app.include_router(auth.router)
 app.include_router(storage.router)
+app.include_router(beneficiarios.router)
+app.include_router(orgs.router)
+app.include_router(articles.router)
+app.include_router(donations.router)
+app.include_router(metrics.router)
 # app.include_router(users.router)
-# app.include_router(orgs.router)
-# app.include_router(articles.router)
-# app.include_router(metrics.router)
-
