@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, UploadFile, status
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from ..utils.supabase import SupabaseStorageService, get_supabase_storage_service
@@ -27,17 +28,14 @@ async def upload_file(
     storage: SupabaseStorageService = Depends(get_supabase_storage_service),
 ):
     payload = await file.read()
-    stored_path = storage.upload_file(
+    stored_path = await run_in_threadpool(
+        storage.upload_file,
         destination_path,
         payload,
         content_type=file.content_type,
         upsert=True,
     )
-    public_url: str | None = None
-    try:
-        public_url = storage.get_public_url(stored_path)
-    except HTTPException:
-        public_url = storage.build_public_url(stored_path)
+    public_url = storage.get_public_url(stored_path)
     return {"path": stored_path, "public_url": public_url}
 
 
@@ -45,11 +43,12 @@ async def upload_file(
     "/sign",
     summary="Gera uma URL assinada temporária para um arquivo privado no Supabase.",
 )
-def generate_signed_url(
+async def generate_signed_url(
     payload: GenerateSignedUrlPayload,
     storage: SupabaseStorageService = Depends(get_supabase_storage_service),
 ):
-    signed_url = storage.create_signed_url(
+    signed_url = await run_in_threadpool(
+        storage.create_signed_url,
         payload.path,
         expires_in_seconds=payload.expires_in_seconds,
     )
@@ -61,9 +60,9 @@ def generate_signed_url(
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Remove um arquivo do bucket configurado no Supabase.",
 )
-def delete_file(
+async def delete_file(
     destination_path: str,
     storage: SupabaseStorageService = Depends(get_supabase_storage_service),
 ):
-    storage.delete_file(destination_path)
+    await run_in_threadpool(storage.delete_file, destination_path)
     return None
