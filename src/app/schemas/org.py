@@ -61,6 +61,29 @@ class ResendInviteRequest(BaseModel):
     org_id: int
 
 
+class InviteOrgByEmailRequest(BaseModel):
+    """Request para criar ONG e enviar convite por email"""
+    email: EmailStr
+    name: str
+    description: str | None = None
+
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        if len(v.strip()) < 3:
+            raise ValueError('Nome deve ter no mínimo 3 caracteres')
+        return v.strip()
+
+
+class InviteOrgByEmailResponse(BaseModel):
+    """Response de convite enviado"""
+    org_id: int
+    org_name: str
+    org_email: str
+    invite_code: str
+    message: str
+
+
 # =============== Approval System ===============
 
 class ApproveOrgRequest(BaseModel):

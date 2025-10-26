@@ -99,6 +99,7 @@ async def create_article(
     link_doc: str | None = Form(None),
     link_image: str | None = Form(None),
     file: UploadFile | None = File(None),
+    file_image: UploadFile | None = File(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ArticleResponse:
@@ -122,6 +123,37 @@ async def create_article(
         author_id=current_user.id,
     )
 
+    # Handle file_image upload (specific for images)
+    if file_image:
+        try:
+            storage_service = get_supabase_storage_service()
+        except HTTPException as exc:
+            if exc.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR:
+                raise HTTPException(
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                    "Storage Supabase não configurado para upload de arquivos.",
+                ) from exc
+            raise
+
+        # Validate that file_image is actually an image
+        if not file_image.content_type or not file_image.content_type.startswith("image/"):
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "O campo file_image deve conter uma imagem (image/*).",
+            )
+
+        file_bytes = await file_image.read()
+        destination = f"articles/{slug}/images/{file_image.filename}"
+        stored_path = storage_service.upload_file(
+            destination,
+            file_bytes,
+            content_type=file_image.content_type,
+            upsert=True,
+        )
+        public_url = storage_service.get_public_url(stored_path)
+        article.link_image = public_url
+
+    # Handle generic file upload (for documents, etc.)
     if file:
         try:
             storage_service = get_supabase_storage_service()
@@ -143,7 +175,9 @@ async def create_article(
         )
         public_url = storage_service.get_public_url(stored_path)
         if file.content_type and file.content_type.startswith("image/"):
-            article.link_image = public_url
+            # Only set link_image if not already set by file_image
+            if not article.link_image:
+                article.link_image = public_url
         else:
             article.link_doc = public_url
 

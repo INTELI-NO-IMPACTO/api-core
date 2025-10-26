@@ -11,6 +11,8 @@ from ..models.org import Org
 from ..models.user import Role, User
 from ..schemas.org import (
     ApproveOrgRequest,
+    InviteOrgByEmailRequest,
+    InviteOrgByEmailResponse,
     OrgApprovalResponse,
     OrgCreate,
     OrgListResponse,
@@ -201,6 +203,66 @@ def resend_invite_email(
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
 
     return {"message": "Convite enviado por email.", "org_email": org.email}
+
+
+@router.post("/invite-by-email", response_model=InviteOrgByEmailResponse, status_code=status.HTTP_201_CREATED)
+def invite_org_by_email(
+    payload: InviteOrgByEmailRequest,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+    email_service: EmailService = Depends(get_email_service),
+) -> InviteOrgByEmailResponse:
+    """
+    Cria uma nova ONG e envia automaticamente o email de convite.
+
+    Este endpoint combina a criação da ONG com o envio do email de convite,
+    simplificando o processo de convite de novas organizações.
+    """
+    # Verificar se email já está cadastrado
+    existing = db.query(Org).filter(func.lower(Org.email) == payload.email.lower()).first()
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email já cadastrado para outra ONG",
+        )
+
+    # Gerar código de convite único
+    invite_code = _generate_unique_invite_code(db)
+
+    # Criar a ONG
+    org = Org(
+        name=payload.name,
+        email=payload.email,
+        description=payload.description,
+        invite_code=invite_code,
+        verified=False,
+        approved=False,
+    )
+    db.add(org)
+    db.commit()
+    db.refresh(org)
+
+    # Enviar email de convite
+    try:
+        send_invite_email(
+            email_service,
+            recipient=org.email,
+            invite_code=org.invite_code,
+            org_name=org.name,
+        )
+        email_sent = True
+        message = f"ONG criada e convite enviado para {org.email}"
+    except EmailNotConfiguredError:
+        email_sent = False
+        message = f"ONG criada, mas email não configurado. Código de convite: {org.invite_code}"
+
+    return InviteOrgByEmailResponse(
+        org_id=org.id,
+        org_name=org.name,
+        org_email=org.email,
+        invite_code=org.invite_code,
+        message=message,
+    )
 
 
 @router.post("/{org_id}/verify-email", response_model=OrgResponse)
