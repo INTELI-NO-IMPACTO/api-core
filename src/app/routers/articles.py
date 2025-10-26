@@ -1,7 +1,15 @@
 from datetime import datetime
-from typing import Iterable
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
@@ -11,13 +19,13 @@ from ..models.article import Article, ArticleStatus
 from ..models.user import Role, User
 from ..schemas.article import (
     ApproveArticleRequest,
-    ArticleCreate,
+    ArticleApprovalResponse,
+    ArticleFilterParams,
     ArticleListResponse,
     ArticleResponse,
     ArticleUpdate,
-    ArticleApprovalResponse,
-    ArticleFilterParams,
 )
+from ..utils.supabase import get_supabase_storage_service
 
 router = APIRouter(prefix="/articles", tags=["articles"])
 
@@ -83,24 +91,62 @@ def list_articles(
 
 
 @router.post("", response_model=ArticleResponse, status_code=status.HTTP_201_CREATED)
-def create_article(
-    data: ArticleCreate,
+async def create_article(
+    title: str = Form(...),
+    body_md: str = Form(...),
+    tags: str = Form(...),
+    status_value: ArticleStatus = Form(ArticleStatus.DRAFT),
+    link_doc: str | None = Form(None),
+    link_image: str | None = Form(None),
+    file: UploadFile | None = File(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ArticleResponse:
-    slug = _generate_slug(data.title)
+    if len(title.strip()) < 3:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Título deve ter no mínimo 3 caracteres.")
+    if not tags or not tags.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Pelo menos uma tag é obrigatória.")
+
+    normalized_tags = tags.strip().lower()
+    slug = _generate_slug(title)
     slug = _ensure_unique_slug(db, slug)
 
     article = Article(
-        title=data.title,
+        title=title,
         slug=slug,
-        body_md=data.body_md,
-        tags=data.tags,
-        link_doc=data.link_doc,
-        link_image=data.link_image,
-        status=data.status,
+        body_md=body_md,
+        tags=normalized_tags,
+        link_doc=link_doc,
+        link_image=link_image,
+        status=status_value,
         author_id=current_user.id,
     )
+
+    if file:
+        try:
+            storage_service = get_supabase_storage_service()
+        except HTTPException as exc:
+            if exc.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR:
+                raise HTTPException(
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                    "Storage Supabase não configurado para upload de arquivos.",
+                ) from exc
+            raise
+
+        file_bytes = await file.read()
+        destination = f"articles/{slug}/{file.filename}"
+        stored_path = storage_service.upload_file(
+            destination,
+            file_bytes,
+            content_type=file.content_type,
+            upsert=True,
+        )
+        public_url = storage_service.get_public_url(stored_path)
+        if file.content_type and file.content_type.startswith("image/"):
+            article.link_image = public_url
+        else:
+            article.link_doc = public_url
+
     db.add(article)
     db.commit()
     db.refresh(article)
