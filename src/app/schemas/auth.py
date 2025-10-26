@@ -73,6 +73,8 @@ class CurrentUserResponse(BaseModel):
     email: str
     name: str | None
     social_name: str | None
+    pronoun: str | None
+    profile_image_url: str | None
     role: str
     is_active: bool
     org_id: int | None

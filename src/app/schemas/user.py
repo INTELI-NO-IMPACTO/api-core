@@ -10,6 +10,7 @@ class UserBase(BaseModel):
     email: EmailStr
     name: str | None = None
     social_name: str | None = None
+    pronoun: str | None = None
 
 
 class UserCreate(UserBase):
@@ -42,6 +43,7 @@ class UserUpdate(BaseModel):
     email: EmailStr | None = None
     name: str | None = None
     social_name: str | None = None
+    pronoun: str | None = None
     cpf: str | None = None
     is_active: bool | None = None
     assistente_id: int | None = None
@@ -62,6 +64,7 @@ class UserResponse(UserBase):
     id: int
     role: Role
     cpf: str | None
+    profile_image_url: str | None
     is_active: bool
     assistente_id: int | None
     org_id: int | None
@@ -93,6 +96,7 @@ class BeneficiarioUpdate(BaseModel):
     email: EmailStr | None = None
     name: str | None = None
     social_name: str | None = None
+    pronoun: str | None = None
     cpf: str | None = None
     is_active: bool | None = None
     assistente_id: int | None = None

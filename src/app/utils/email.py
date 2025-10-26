@@ -233,7 +233,7 @@ def send_org_validation_email(
             f"- Acompanhar solicitações de serviços\n"
             f"- Criar e publicar artigos educativos\n"
             f"- Acessar tutoriais e recursos da plataforma\n\n"
-            "Bem-vindo(a) à rede de transformação social!\n"
+            "Boas-vindas à rede de transformação social!\n"
         )
         html = f"""
         <!DOCTYPE html>
@@ -340,7 +340,7 @@ def send_org_validation_email(
             f"O que fazer agora:\n"
             f"- Revise as informações cadastradas\n"
             f"- Faça os ajustes necessários\n"
-            f"- Envie uma nova solicitação quando estiver pronto\n\n"
+            f"- Envie uma nova solicitação quando estiver preparade\n\n"
             "Estamos à disposição para esclarecer dúvidas e ajudar no processo.\n"
         )
         html = f"""
@@ -402,7 +402,7 @@ def send_org_validation_email(
                                         <ul style="margin:0;padding-left:20px;color:#92400e;font-size:14px;line-height:1.8;">
                                             <li>Revise as informações cadastradas</li>
                                             <li>Faça os ajustes necessários</li>
-                                            <li>Envie uma nova solicitação quando estiver pronto</li>
+                                            <li>Envie uma nova solicitação quando estiver preparade</li>
                                         </ul>
                                     </div>
 

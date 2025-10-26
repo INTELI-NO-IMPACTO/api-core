@@ -141,7 +141,7 @@ def update_beneficiario(
     if current_user.role == Role.ASSISTENTE and beneficiario.assistente_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Assistente só pode gerenciar seus beneficiários",
+            detail="Assistente só pode gerenciar os próprios beneficiários",
         )
 
     update_data = data.model_dump(exclude_unset=True)
